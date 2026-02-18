@@ -1,16 +1,39 @@
-// Подключаем библиотеки
 const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 
-// Создаём express-приложение
 const app = express();
-const port = process.env.PORT || 3000; // Render будет задавать свой PORT, локально будет 3000
+const port = process.env.PORT || 3000;
 
-// Токен бота (вставь свой)
-const token = '8477201002:AAHDGBQjUMJz3UO-6-tyt5giYlPUFyT-l84'; // ⚠️ ЗАМЕНИ НА СВОЙ ТОКЕН
+// Токен берём из переменных окружения (которые мы задали на Render)
+const token = process.env.BOT_TOKEN;
+if (!token) {
+    console.error('BOT_TOKEN not set');
+    process.exit(1);
+}
 
-// Создаём экземпляр бота
-const bot = new TelegramBot(token, { polling: true }); // polling: true — для локальной разработки
+const bot = new TelegramBot(token);
+
+// URL нашего сервиса (Render должен подставить автоматически, но можно прописать вручную)
+const baseUrl = process.env.RENDER_EXTERNAL_URL;
+if (!baseUrl) {
+    console.warn('RENDER_EXTERNAL_URL not set, using fallback (you need to set it manually)');
+    // Можно временно вставить свой URL вручную, но лучше задать переменную окружения
+}
+
+// Устанавливаем вебхук
+if (baseUrl) {
+    bot.setWebHook(`${baseUrl}/bot${token}`);
+    console.log(`Webhook set to ${baseUrl}/bot${token}`);
+}
+
+// Middleware для парсинга JSON (обязательно для вебхука)
+app.use(express.json());
+
+// Эндпоинт, на который Telegram будет отправлять обновления
+app.post(`/bot${token}`, (req, res) => {
+    bot.processUpdate(req.body);
+    res.sendStatus(200);
+});
 
 // Обработка команды /start
 bot.onText(/\/start/, (msg) => {
@@ -20,14 +43,11 @@ bot.onText(/\/start/, (msg) => {
 
 // Обработка всех сообщений (в том числе данных от Mini App)
 bot.on('message', (msg) => {
-    // Проверяем, есть ли у сообщения поле web_app_data (данные из Mini App)
     if (msg.web_app_data) {
         try {
-            // Парсим JSON-строку, которую мы отправили из Mini App
             const data = JSON.parse(msg.web_app_data.data);
             const chatId = msg.chat.id;
 
-            // Формируем ответное сообщение (используем Markdown для красоты)
             const response = `
 ✅ *Результат расчета:*
 • Сумма чека: ${data.bill} ₽
@@ -37,21 +57,18 @@ bot.on('message', (msg) => {
 • С каждого: ${data.perPerson} ₽
             `;
 
-            // Отправляем сообщение обратно в чат
             bot.sendMessage(chatId, response, { parse_mode: 'Markdown' });
         } catch (error) {
-            console.error('Ошибка при обработке данных:', error);
-            bot.sendMessage(msg.chat.id, 'Произошла ошибка. Попробуйте снова.');
+            console.error('Ошибка парсинга данных:', error);
+            bot.sendMessage(msg.chat.id, 'Произошла ошибка при обработке данных.');
         }
     }
 });
 
-// Простой маршрут для проверки, что сервер работает
 app.get('/', (req, res) => {
-    res.send('Бот работает!');
+    res.send('Bot is running with webhook!');
 });
 
-// Запускаем сервер
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
